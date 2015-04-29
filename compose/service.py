@@ -16,7 +16,6 @@ from .progress_stream import stream_output, StreamOutputError
 
 log = logging.getLogger(__name__)
 
-
 DOCKER_START_KEYS = [
     'cap_add',
     'cap_drop',
@@ -48,7 +47,6 @@ class ConfigError(ValueError):
 
 
 VolumeSpec = namedtuple('VolumeSpec', 'external internal mode')
-
 
 ServiceName = namedtuple('ServiceName', 'project service number')
 
@@ -131,14 +129,27 @@ class Service(object):
         if not self.can_be_scaled():
             raise CannotBeScaledError()
 
-        # Create enough containers
         containers = self.containers(stopped=True)
-        while len(containers) < desired_num:
-            log.info("Creating %s..." % self._next_container_name(containers))
-            containers.append(self.create_container(detach=True))
-
         running_containers = []
         stopped_containers = []
+
+        # If it is running at least one container, we define 'hostname_prefix'
+        # to use as a prefix for the hostname of the replicas to be created
+        hostname_prefix = None
+        if len(containers) >= 1:
+            c = containers[0]
+            hostname_prefix = c.inspect()['Name'].split("_")[1]
+
+        # Create enough containers
+        while len(containers) < desired_num:
+            # override the hostname according to
+            # the pattern: hostname_prefix + "_" + "r<replica_instance>"
+            options = {}
+            if hostname_prefix:
+                options = {"hostname": "%s_r%s" % (hostname_prefix, len(containers))}
+            log.info("Creating %s..." % self._next_container_name(containers))
+            containers.append(self.create_container(detach=True, **options))
+
         for c in containers:
             if c.is_running:
                 running_containers.append(c)
